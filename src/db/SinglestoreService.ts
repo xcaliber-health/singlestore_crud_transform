@@ -1,11 +1,12 @@
 import mysql from "mysql2/promise";
 require("dotenv").config();
 
-const HOST = "<DB_HOST>";
+const HOST = "singlestore-blitz.xcaliberapis.com";
 const PORT = "3306";
-const USERNAME = "<DB_USERNAME>";
-const PASSWORD = "<DB_PASSWORD>";
-const DATABASE = "<DB_NAME>";
+const USERNAME = "dba_user";
+const PASSWORD = "Gkkqx4r9+tsmUb9W";
+const DATABASE = "kafka_test";
+
 
 export class SinglestoreService {
   private connection: any;
@@ -90,6 +91,25 @@ export class SinglestoreService {
         });
     });
   }
+
+  async readPassageMessagesById(id: string) {
+    return new Promise<string>(async (resolve, reject) => {
+      console.log("Passage_messages");
+      this.connection
+        .execute("SELECT data FROM hl7_msgs WHERE id = ?", [id])
+        .then(([rows, fields]) => {
+          //console.log("Passage_messages output ->", rows);
+          resolve(rows[0].data);
+        })
+        .catch((err) => {
+          console.log(
+            `error while reading from SS db Passage_messages: ${err}`,
+          );
+          reject(err);
+        });
+    });
+  }
+
   async readLargePassageMessages() {
     return new Promise<string | void>(async (resolve, reject) => {
       console.log("Large_passage_messages get");

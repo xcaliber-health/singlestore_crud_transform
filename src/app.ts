@@ -1,14 +1,23 @@
 import { large_json_message, large_passage_message } from "./contant";
 import { SinglestoreService } from "./db/SinglestoreService";
 
+const converter = require("@xcaliber-health/fhir-converter/src/converter");
+
 process.stdin.resume();
 process.stdin.setEncoding("utf-8");
 
 let inputString = "";
+let currentLine = 0;
+let uuids = [];
+
+function splitLines(t) { return t.split(/\r\n|\r|\n/); }
 
 //read the data from the standard input
 process.stdin.on("data", (inputStdin) => {
   inputString += inputStdin;
+  inputString = inputString.trim();
+  //console.log(splitLines(inputString));
+  uuids = splitLines(inputString);
 });
 
 // end of reading the standard input
@@ -19,7 +28,8 @@ process.stdin.on("end", () => {
 async function main() {
   try {
     console.log(`pipeline input message: ${inputString}`);
-    await handleCrudOperations(inputString);
+   // await handleCrudOperations(inputString);
+    await kafkaFHIRTransform(inputString);
   } catch (err) {
     console.error(`Failed to ingest data to singlestore db ${err}`);
   } finally {
@@ -48,8 +58,43 @@ async function handleCrudOperations(message) {
   // await singlestoreService.readLargeJsonMessages();
 
   await singlestoreService.writeTosmall_messages(smallText);
-  await singlestoreService.writeTojson_messages(smallJsonVar);
+  await singlestoreService.writeTojson_messages(JSON.stringify(smallJsonVar));
   await singlestoreService.writeTopassage_messages(smallPassage);
   await singlestoreService.writeTolarge_passage_messages(large_passage_message);
-  await singlestoreService.writeTolarge_json_messages(large_json_message);
+ // await singlestoreService.writeTolarge_json_messages(large_json_message);
+}
+
+async function kafkaFHIRTransform(inputString) {
+  try {
+    const singlestoreService = new SinglestoreService();
+    await singlestoreService.setConnection();
+  
+    for (let i=0; i<uuids.length; i++) {
+        uuids[i] = uuids[i].replace(/%/g,'');
+        let hl7message = await singlestoreService.readPassageMessagesById(uuids[i]);
+
+        const segments = hl7message.split("\r");
+        segments[0] = "MSH" + segments[0].split("&").join("\\&");
+        hl7message = segments.join("\n");
+  
+        // console.log(`${inputString} read from db:----` + hl7message);
+ 
+        const convertedMsg = await converter.convertHL7v2ToFHIR(hl7message);
+        // console.log(`${inputString} conveted----`, convertedMsg);
+
+        if (convertedMsg.status === 200) {
+        //    console.log(`${inputString} update----`);
+           const fhirBundle = convertedMsg.resultMsg.fhirResource;
+          // console.log(JSON.stringify(fhirBundle));
+          await singlestoreService.writeTolarge_passage_messages(JSON.stringify(fhirBundle));
+      } else {
+        singlestoreService.closeConnection();
+        throw new Error(`Error: HL7 Conversion failed`);
+        }
+    }
+    singlestoreService.closeConnection();
+  } catch (err) {
+  console.error(`Failed to ingest data to singlestore db ${err}`);
+  }
+ process.exit();
 }
